@@ -1,0 +1,178 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: students
+    // Document ID: registrationNumber
+    // Fields:
+    //   - registrationNumber: string (required)
+    //   - name: string (required)
+    //   - branch: string (optional)
+    //   - year: string (optional)
+    //   - phoneNumber: string (optional)
+    //   - dob: string (required, hashed)
+    //   - selections: map (optional)
+    //   - isSubmitted: bool (optional)
+    //   - uid: string (optional)
+    //
+    // Collection: subjects
+    // Document ID: subjectId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //
+    // Collection: faculty
+    // Document ID: facultyId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - subjectId: string (required)
+    //   - studentCount: number (required)
+    //
+    // Collection: users
+    // Document ID: uid
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (optional, for admin)
+    //   - registrationNumber: string (optional, for student)
+    //   - role: string (required, enum: ['admin', 'student'])
+    //   - lastLogin: string (optional, ISO 8601)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        ((request.auth.token.email == "24095a0506@rgmcet.edu.in" && request.auth.token.email_verified == true) || 
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isStudent(studentId) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.registrationNumber == studentId;
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll(['registrationNumber', 'name', 'dob', 'group']) &&
+             data.registrationNumber is string && data.registrationNumber.size() < 100 &&
+             data.name is string && data.name.size() < 200 &&
+             data.dob is string && data.dob.size() < 200 &&
+             data.group in ['A', 'B'] &&
+             (!('uid' in data) || (data.uid is string && data.uid.size() < 100)) &&
+             (!('selections' in data) || data.selections is map) &&
+             (!('isSubmitted' in data) || data.isSubmitted is bool) &&
+             (!('submittedAt' in data) || data.submittedAt is string) &&
+             (!('branch' in data) || data.branch is string) &&
+             (!('year' in data) || data.year is string) &&
+             (!('phoneNumber' in data) || data.phoneNumber is string);
+    }
+
+    function isValidFaculty(data) {
+      return data.keys().hasAll(['id', 'name', 'subjectId', 'studentCount', 'group']) &&
+             data.id is string && data.id.size() < 100 &&
+             data.name is string && data.name.size() < 200 &&
+             data.subjectId is string && data.subjectId.size() < 100 &&
+             data.studentCount is int && data.studentCount >= 0 &&
+             data.group in ['A', 'B'];
+    }
+
+    function isValidSubject(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+             data.id is string && data.id.size() < 100 &&
+             data.name is string && data.name.size() < 200;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'role']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.role in ['admin', 'student'] &&
+             (!('email' in data) || data.email is string) &&
+             (!('registrationNumber' in data) || data.registrationNumber is string) &&
+             (!('lastLogin' in data) || data.lastLogin is string);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /students/{studentId} {
+      // Allow anyone to get a student by ID (regNo) for login verification
+      // This is necessary because the student is not yet authenticated at this step.
+      // Sensitive data (dob) is hashed.
+      allow get: if true;
+      allow list: if isAdmin();
+      
+      allow create: if isAdmin() && isValidStudent(request.resource.data);
+      
+      // Allow students to update their own record if they are linked
+      // or if they are in the process of linking (step 5 of login)
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        isValidStudent(request.resource.data) &&
+        (isStudent(studentId) || (!('uid' in resource.data) && request.resource.data.uid == request.auth.uid)) &&
+        (
+          // Allow submission if not already submitted
+          (!('isSubmitted' in resource.data) || resource.data.isSubmitted == false) || 
+          // Allow login (updating UID) even if already submitted
+          (resource.data.isSubmitted == true && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid']))
+        ) &&
+        request.resource.data.registrationNumber == resource.data.registrationNumber
+      );
+    }
+
+    match /subjects/{subjectId} {
+      // Subjects are public information
+      allow read: if true;
+      allow create: if isAdmin() && isValidSubject(request.resource.data);
+      allow update: if isAdmin() && isValidSubject(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /faculty/{facultyId} {
+      // Faculty list is public information
+      allow read: if true;
+      // Allow students to increment studentCount via transaction
+      allow update: if isAuthenticated() && 
+                    (isAdmin() || (
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['studentCount']) &&
+                      request.resource.data.studentCount == resource.data.studentCount + 1 &&
+                      request.resource.data.studentCount <= 70 &&
+                      isValidFaculty(request.resource.data)
+                    ));
+      allow create: if isAdmin() && isValidFaculty(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      // Allow any authenticated user to read their own document
+      // Use a direct check for UID to avoid recursion with isAdmin()
+      allow get: if isAuthenticated() && (request.auth.uid == userId || (request.auth.token.email == "24095a0506@rgmcet.edu.in" && request.auth.token.email_verified == true));
+      // Allow full admin check for listing or other users
+      allow list: if isAdmin();
+      
+      allow create: if isAuthenticated() && request.auth.uid == userId && isValidUser(request.resource.data);
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin()) && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      // System settings should be readable by all authenticated users
+      // so they can check if the selection process is enabled.
+      allow read: if isAuthenticated();
+      // Only admins can modify settings
+      allow write: if isAdmin();
+    }
+  }
+}

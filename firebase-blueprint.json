@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Student record containing registration and selection details.",
+      "type": "object",
+      "properties": {
+        "registrationNumber": { "type": "string", "description": "Unique registration number of the student." },
+        "name": { "type": "string", "description": "Full name of the student." },
+        "branch": { "type": "string", "description": "Academic branch (e.g., CSE, ECE)." },
+        "year": { "type": "string", "description": "Current year of study." },
+        "phoneNumber": { "type": "string", "description": "Contact phone number." },
+        "dob": { "type": "string", "description": "Hashed date of birth for login verification." },
+        "selections": { "type": "object", "description": "Map of subject IDs to selected faculty IDs." },
+        "isSubmitted": { "type": "boolean", "description": "Flag indicating if the final selection is submitted." },
+        "group": { "type": "string", "enum": ["A", "B"], "description": "Batch group (A or B) the student belongs to." },
+        "uid": { "type": "string", "description": "Firebase Auth UID linked to this student record." }
+      },
+      "required": ["registrationNumber", "name", "dob", "group"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Academic subject available for selection.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique subject identifier." },
+        "name": { "type": "string", "description": "Name of the subject." }
+      },
+      "required": ["id", "name"]
+    },
+    "Faculty": {
+      "title": "Faculty",
+      "description": "Faculty member available for a specific subject.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique faculty identifier." },
+        "name": { "type": "string", "description": "Name of the faculty member." },
+        "subjectId": { "type": "string", "description": "ID of the subject this faculty teaches." },
+        "studentCount": { "type": "integer", "description": "Current number of students who selected this faculty." },
+        "group": { "type": "string", "enum": ["A", "B"], "description": "Batch group (A or B) this faculty is assigned to." }
+      },
+      "required": ["id", "name", "subjectId", "studentCount", "group"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Internal user record for role management.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID." },
+        "email": { "type": "string", "description": "Email address (for admins)." },
+        "registrationNumber": { "type": "string", "description": "Registration number (for students)." },
+        "role": { "type": "string", "enum": ["admin", "student"], "description": "User role." },
+        "lastLogin": { "type": "string", "format": "date-time", "description": "Timestamp of last login." }
+      },
+      "required": ["uid", "role"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Collection of student records."
+    },
+    "/subjects/{subjectId}": {
+      "schema": "Subject",
+      "description": "Collection of available subjects."
+    },
+    "/faculty/{facultyId}": {
+      "schema": "Faculty",
+      "description": "Collection of faculty members."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user role and metadata."
+    }
+  }
+}

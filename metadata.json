@@ -1,0 +1,5 @@
+{
+  "name": "Remix: Faculty Selection Portal",
+  "description": "A full-stack application for students to select faculty members for their subjects with real-time seat availability and concurrency handling.",
+  "requestFramePermissions": []
+}
